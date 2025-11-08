@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Finance Tracker – Actionable Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{--bg:#0b1220;--panel:#0f172a;--border:#1f2a44;--muted:#9aa4b2;--text:#e6edf6;--accent:#22c55e;--accent2:#60a5fa;--chip:#1e293b;--radius:16px}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    .app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+    /* Sidebar */
+    aside{background:#0d1526;border-right:1px solid var(--border);padding:18px;position:sticky;top:0;height:100vh;overflow:auto}
+    .brand{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+    .logo{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+    .brand h1{font-size:18px;margin:0}
+    nav{display:grid;gap:8px;margin-top:12px}
+    .tab{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid transparent;color:inherit;text-decoration:none;cursor:pointer}
+    .tab:hover{background:#101a30;border-color:#223152}
+    .tab.active{background:linear-gradient(135deg,rgba(34,197,94,.18),rgba(96,165,250,.15));border-color:#27415e}
+    .req{margin-top:18px;padding:12px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);font-size:12px}
+
+    /* Main area */
+    main{padding:18px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+    input[type="file"],input[type="month"],input[type="number"],select,input[type="text"],button{
+      background:#0b152c;border:1px solid #223152;color:var(--text);border-radius:12px;padding:9px 12px;outline:none
+    }
+    button{cursor:pointer}
+    .btn-primary{background:linear-gradient(135deg,var(--accent),#16a34a);color:#06290e;border-color:transparent}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+    .grid{display:grid;gap:16px}
+    .cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    @media (max-width:1100px){.app{grid-template-columns:1fr} aside{position:static;height:auto} .cols-3,.cols-2{grid-template-columns:1fr}}
+    .kpi{display:grid;gap:6px}
+    .kpi .label{color:var(--muted);font-size:13px}
+    .kpi .value{font-size:28px;font-weight:700}
+    .chip{display:inline-flex;gap:8px;align-items:center;background:var(--chip);padding:6px 10px;border-radius:999px;color:#cfd8e3;font-size:12px}
+    .note{color:var(--muted);font-size:12px}
+    .hidden{display:none}
+    table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    th,td{padding:10px 12px;text-align:left}
+    thead th{color:var(--muted)}
+    tbody tr{background:#0b152c;border:1px solid #223152}
+    tbody tr:hover{outline:1px solid #2b3f64}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><div class="logo"></div><h1>Finance Tracker</h1></div>
+    <nav>
+      <a href="#" class="tab active" data-tab="dashboard">🏠 Dashboard</a>
+      <a href="#" class="tab" data-tab="transactions">📄 Transactions</a>
+      <a href="#" class="tab" data-tab="budgets">🎯 Budgets</a>
+      <a href="#" class="tab" data-tab="categories">🗂️ Categories</a>
+      <a href="#" class="tab" data-tab="vendors">🏪 Vendors</a>
+      <a href="#" class="tab" data-tab="reports">📊 Reports</a>
+      <a href="#" class="tab" data-tab="cashflow">💧 Cashflow</a>
+      <a href="#" class="tab" data-tab="alerts">🚨 Alerts</a>
+      <a href="#" class="tab" data-tab="settings">⚙️ Settings</a>
+      <a href="#" class="tab" data-tab="help">❓ Help</a>
+    </nav>
+    <div class="req">Required columns:<br><b>Date, Category, Amount, Description, Payment_Mode, Vendor</b></div>
+  </aside>
+
+  <main>
+    <!-- Top toolbar -->
+    <div class="toolbar">
+      <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+      <button id="sampleBtn">Use Sample Data</button>
+      <input id="monthFilter" type="month" />
+      <input id="budgetInput" type="number" placeholder="Monthly Budget (₹)" />
+      <button id="applyBtn" class="btn-primary">Apply</button>
+      <button id="exportBtn">Export CSV</button>
+      <span class="note" id="rowCount">0 rows</span>
+    </div>
+
+    <!-- Dashboard -->
+    <section id="dashboard">
+      <div class="grid cols-3">
+        <div class="panel kpi"><div class="label">Total Expenses</div><div class="value" id="kpiTotal">₹0</div><div class="chip" id="kpiCount">0 items</div></div>
+        <div class="panel kpi"><div class="label">Top Category</div><div class="value" id="kpiTop">—</div><div class="chip" id="kpiTopAmt">₹0</div></div>
+        <div class="panel kpi"><div class="label">Savings % (vs Budget)</div><div class="value" id="kpiSave">—</div><div class="chip" id="kpiBudget">Budget: —</div></div>
+      </div>
+      <div class="grid cols-2" style="margin-top:16px">
+        <div class="panel"><div style="margin-bottom:6px;font-weight:600">Spending by Category <span class="note" id="pieNote">—</span></div><canvas id="pieCanvas" height="180"></canvas></div>
+        <div class="panel"><div style="margin-bottom:6px;font-weight:600">Monthly Trend <span class="note" id="barNote">—</span></div><canvas id="barCanvas" height="180"></canvas></div>
+      </div>
+      <div class="panel" style="margin-top:16px"><div style="font-weight:600;margin-bottom:6px">Quick Insights</div><div id="insights" class="grid"></div></div>
+    </section>
+
+    <!-- Transactions -->
+    <section id="transactions" class="hidden">
+      <div class="panel">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <input id="searchTxt" type="text" placeholder="Search description/vendor/category" style="min-width:240px" />
+          <select id="filterCat"><option value="">All Categories</option></select>
+          <select id="filterPay"><option value="">All Payment Modes</option></select>
+        </div>
+        <div style="overflow:auto">
+          <table>
+            <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Description</th><th>Payment</th><th>Vendor</th></tr></thead>
+            <tbody id="txBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Budgets -->
+    <section id="budgets" class="hidden"><div class="panel"><div class="note" style="margin-bottom:8px">Set per‑category budgets (saved in your browser).</div><div id="budgetWrap" class="grid"></div></div></section>
+
+    <!-- Categories & Vendors -->
+    <section id="categories" class="hidden"><div class="panel"><div id="catWrap" class="grid cols-2"></div></div></section>
+    <section id="vendors" class="hidden"><div class="panel"><div id="venWrap" class="grid cols-2"></div></div></section>
+
+    <!-- Reports -->
+    <section id="reports" class="hidden">
+      <div class="grid cols-2">
+        <div class="panel"><div style="margin-bottom:6px;font-weight:600">Daily Cashflow</div><canvas id="lineCanvas" height="180"></canvas></div>
+        <div class="panel">
+          <div style="font-weight:600;margin-bottom:6px">Summary</div>
+          <div id="summaryBox" class="grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cashflow -->
+    <section id="cashflow" class="hidden"><div class="panel"><div style="margin-bottom:6px;font-weight:600">Cumulative Cashflow</div><canvas id="cumCanvas" height="200"></canvas></div></section>
+
+    <!-- Alerts -->
+    <section id="alerts" class="hidden"><div class="panel"><div class="note" style="margin-bottom:8px">Example alerts are auto‑computed.</div><div id="alertBox" class="grid"></div></div></section>
+
+    <!-- Settings -->
+    <section id="settings" class="hidden"><div class="panel"><button id="saveLocal">Save to Browser</button> <button id="loadLocal">Load</button> <button id="clearLocal">Clear</button></div></section>
+
+    <!-- Help -->
+    <section id="help" class="hidden"><div class="panel"><ol><li>Use same columns as shown.</li><li>Upload Excel/CSV from toolbar.</li><li>Set Month + Budget and click Apply.</li></ol></div></section>
+  </main>
+</div>
+
+<script>
+// ------- Utilities -------
+const fmt = (n)=> new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n||0);
+const monthKey = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+const monthLabel = (key)=> { const [y,m]=key.split('-').map(Number); return new Date(y,m-1,1).toLocaleString('en-IN',{month:'short',year:'2-digit'}) };
+const sum = (arr,fn=(x)=>x)=> Math.round(arr.reduce((s,x)=> s + (fn(x)||0),0));
+
+function normalizeRow(r){
+  const map=new Map(Object.entries(r).map(([k,v])=>[String(k).trim().toLowerCase(),v]));
+  const raw=map.get('date') ?? map.get('transaction_date') ?? map.get('txn_date');
+  const cat=(map.get('category') ?? map.get('type') ?? 'Uncategorized').toString();
+  const amt=Number(map.get('amount') ?? map.get('amt') ?? 0);
+  const desc=(map.get('description') ?? map.get('desc') ?? '').toString();
+  const pay=(map.get('payment_mode') ?? map.get('payment mode') ?? map.get('mode') ?? '').toString();
+  const vendor=(map.get('vendor') ?? map.get('merchant') ?? '').toString();
+  let date;
+  if(raw instanceof Date){ date=raw }
+  else if(typeof raw==='number'){ const d=XLSX.SSF.parse_date_code(raw); date=new Date(d.y,d.m-1,d.d) }
+  else if(raw){ date=new Date(String(raw).replaceAll('/','-')) }
+  return { Date:(date&&!isNaN(date))?date:null, Category:cat, Amount:amt||0, Description:desc, Payment_Mode:pay, Vendor:vendor };
+}
+function groupSum(items, keyFn){ const m=new Map(); for(const it of items){ const k=keyFn(it); m.set(k,(m.get(k)||0)+(Number(it.Amount)||0)); } return Array.from(m,([key,value])=>({key,value})).sort((a,b)=>b.value-a.value) }
+
+// ------- State -------
+let rows=[]; let budgets={};
+
+// ------- Navigation (fix: prevent default) -------
+document.querySelectorAll('.tab').forEach(el=>{
+  el.addEventListener('click',(e)=>{
+    e.preventDefault();
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    const id=el.dataset.tab;
+    document.querySelectorAll('main section').forEach(s=> s.id===id ? s.classList.remove('hidden') : s.classList.add('hidden'));
+  })
+})
+
+// ------- File handling -------
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  const buf=await f.arrayBuffer();
+  const wb=XLSX.read(buf, {type:'array'});
+  const sh=wb.Sheets[wb.SheetNames[0]];
+  const json=XLSX.utils.sheet_to_json(sh,{raw:true});
+  rows = json.map(normalizeRow).filter(r=>r.Date && !isNaN(r.Amount));
+  hydrateFilters();
+  document.getElementById('rowCount').textContent=`${rows.length} rows`;
+  renderAll();
+});
+
+document.getElementById('sampleBtn').addEventListener('click',()=>{
+  const cats=['Food','Travel','Shopping','Bills','Entertainment','Medical'];
+  const pays=['UPI','Cash','Card','Wallet'];
+  const vens=['Amazon','Flipkart','Domino\'s','Swiggy','Medical Store','Local Market','Uber','Myntra'];
+  const today=new Date(); const start=new Date(today.getFullYear(), today.getMonth()-4, 1);
+  const temp=[]; for(let i=0;i<80;i++){ const d=new Date(start.getTime()+Math.random()*(today-start)); const c=cats[Math.floor(Math.random()*cats.length)]; const a=Math.round(50+Math.random()*3500); temp.push({Date:d,Category:c,Amount:a,Description:['Lunch','Snacks','Ride','Bill','Groceries'][Math.floor(Math.random()*5)],Payment_Mode:pays[Math.floor(Math.random()*pays.length)],Vendor:vens[Math.floor(Math.random()*vens.length)]}) }
+  rows=temp; hydrateFilters(); document.getElementById('rowCount').textContent=`${rows.length} rows`; renderAll();
+});
+
+// ------- Filters / Export -------
+document.getElementById('applyBtn').addEventListener('click',renderAll);
+
+document.getElementById('exportBtn').addEventListener('click',()=>{
+  if(!rows.length) return alert('No data');
+  const ws=XLSX.utils.json_to_sheet(rows.map(r=>({Date:r.Date.toISOString().slice(0,10),Category:r.Category,Amount:r.Amount,Description:r.Description,Payment_Mode:r.Payment_Mode,Vendor:r.Vendor})));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Transactions');
+  XLSX.writeFile(wb,'finance_export.csv');
+});
+
+function hydrateFilters(){
+  const cats=[...new Set(rows.map(r=>r.Category))].sort();
+  const pays=[...new Set(rows.map(r=>r.Payment_Mode))].sort();
+  const cSel=document.getElementById('filterCat'); cSel.innerHTML='<option value="">All Categories</option>'+cats.map(c=>`<option>${c}</option>`).join('');
+  const pSel=document.getElementById('filterPay'); pSel.innerHTML='<option value="">All Payment Modes</option>'+pays.map(p=>`<option>${p}</option>`).join('');
+}
+
+// ------- Render All -------
+let pieChart, barChart, lineChart, cumChart;
+function renderAll(){
+  if(!rows.length){ drawCharts([],[],[],[]); renderKPIs([]); renderTable([]); renderBudgets([]); renderCatVend(); renderReports(); renderAlerts([]); return; }
+  const ym=document.getElementById('monthFilter').value || null;
+  let view=rows.slice(); let label='All Time';
+  if(ym){ const [y,m]=ym.split('-').map(Number); view=view.filter(x=>x.Date && x.Date.getFullYear()===y && x.Date.getMonth()+1===m); label=new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'}) }
+  renderKPIs(view, ym);
+  renderCharts(view, label);
+  renderTable(view);
+  renderBudgets(view);
+  renderCatVend();
+  renderReports();
+  renderAlerts(view);
+}
+
+function renderKPIs(view){
+  const total=sum(view,x=>x.Amount); document.getElementById('kpiTotal').textContent=fmt(total);
+  document.getElementById('kpiCount').textContent=`${view.length} items`;
+  const byCat=groupSum(view,x=>x.Category||'Uncategorized');
+  document.getElementById('kpiTop').textContent=byCat[0]?.key||'—';
+  document.getElementById('kpiTopAmt').textContent=fmt(byCat[0]?.value||0);
+  const budget=Number(document.getElementById('budgetInput').value||0);
+  if(budget>0){ const sv=Math.max(0,budget-total); const pct=Math.round((sv/budget)*100); document.getElementById('kpiSave').textContent=`${pct}%`; document.getElementById('kpiBudget').textContent=`Budget: ${fmt(budget)}` } else { document.getElementById('kpiSave').textContent='—'; document.getElementById('kpiBudget').textContent='Budget: —' }
+}
+
+function renderCharts(view, label){
+  // Pie
+  const byCat=groupSum(view,x=>x.Category||'Uncategorized');
+  document.getElementById('pieNote').textContent=label;
+  if(pieChart) pieChart.destroy();
+  pieChart=new Chart(document.getElementById('pieCanvas'),{type:'pie',data:{labels:byCat.map(x=>x.key),datasets:[{data:byCat.map(x=>x.value)}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#cfd8e3'}}}}});
+  // Bar monthly
+  const byM=groupSum(rows,x=>x.Date?monthKey(x.Date):'Unknown').filter(x=>x.key!=='Unknown').reverse();
+  document.getElementById('barNote').textContent=`${byM.length} month(s)`;
+  if(barChart) barChart.destroy();
+  barChart=new Chart(document.getElementById('barCanvas'),{type:'bar',data:{labels:byM.map(x=>monthLabel(x.key)),datasets:[{label:'Total',data:byM.map(x=>x.value)}]},options:{scales:{x:{ticks:{color:'#cbd5e1'},grid:{color:'#1f2937'}},y:{ticks:{color:'#cbd5e1'},grid:{color:'#1f2937'}}},plugins:{legend:{labels:{color:'#cfd8e3'}}}}});
+
+  // Insights
+  const top3=byCat.slice(0,3).map((x,i)=>`<div class='chip'>#${i+1} ${x.key}: ${fmt(x.value)}</div>`).join(' ');
+  const biggest=view.slice().sort((a,b)=>b.Amount-a.Amount)[0];
+  document.getElementById('insights').innerHTML=(top3||'<span class="note">No data</span>')+(biggest?` <div class='chip'>Biggest: ${fmt(biggest.Amount)} • ${biggest.Vendor||'-'}</div>`:'');
+}
+
+function renderTable(view){
+  const q=(document.getElementById('searchTxt').value||'').toLowerCase();
+  const fCat=document.getElementById('filterCat').value; const fPay=document.getElementById('filterPay').value;
+  const body=document.getElementById('txBody'); body.innerHTML='';
+  view.filter(r=>(!q || `${r.Description} ${r.Vendor} ${r.Category}`.toLowerCase().includes(q)) && (!fCat || r.Category===fCat) && (!fPay || r.Payment_Mode===fPay))
+      .forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${r.Date.toISOString().slice(0,10)}</td><td>${r.Category}</td><td>${fmt(r.Amount)}</td><td>${r.Description}</td><td>${r.Payment_Mode}</td><td>${r.Vendor}</td>`; body.appendChild(tr) })
+}
+document.getElementById('searchTxt').addEventListener('input',()=>renderAll());
+document.getElementById('filterCat').addEventListener('change',()=>renderAll());
+document.getElementById('filterPay').addEventListener('change',()=>renderAll());
+
+function renderBudgets(){
+  const wrap=document.getElementById('budgetWrap'); wrap.innerHTML='';
+  const cats=[...new Set(rows.map(r=>r.Category))];
+  cats.forEach(cat=>{ const spent=sum(rows.filter(r=>r.Category===cat),x=>x.Amount); const b=Number(budgets[cat]||0); const pct=b? Math.min(100,Math.round((spent/b)*100)) : 0; const warn=pct>=100?"style='background:#7f1d1d'":'';
+    const div=document.createElement('div'); div.className='panel';
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><div style="font-weight:600">${cat}</div><div class="note">Spent: ${fmt(spent)}</div></div>
+      <div style="min-width:220px;width:40%"><div style="height:10px;background:#0b152c;border:1px solid #223152;border-radius:999px;overflow:hidden"><div ${warn} style="height:10px;background:linear-gradient(90deg,#22c55e,#60a5fa);width:${pct}%"></div></div><div class="note">${pct}% of ${b?fmt(b):'—'}</div></div>
+      <div><input type="number" class="budgetInp" data-cat="${cat}" placeholder="Set budget (₹)" value="${b||''}"/></div>
+    </div>`;
+    wrap.appendChild(div);
+  })
+  document.querySelectorAll('.budgetInp').forEach(inp=> inp.addEventListener('change',e=>{ budgets[e.target.dataset.cat]=Number(e.target.value||0); renderAll(); }))
+}
+
+function renderCatVend(){
+  const cw=document.getElementById('catWrap'); cw.innerHTML=''; groupSum(rows,x=>x.Category).forEach(x=>{ const d=document.createElement('div'); d.className='panel'; d.innerHTML=`<div style='font-weight:600;margin-bottom:6px'>${x.key}</div><div class='note'>${fmt(x.value)}</div>`; cw.appendChild(d) });
+  const vw=document.getElementById('venWrap'); vw.innerHTML=''; groupSum(rows,x=>x.Vendor||'—').slice(0,12).forEach(x=>{ const d=document.createElement('div'); d.className='panel'; d.innerHTML=`<div style='font-weight:600;margin-bottom:6px'>${x.key}</div><div class='note'>${fmt(x.value)}</div>`; vw.appendChild(d) });
+}
+
+function renderReports(){
+  // daily line
+  const byDay=groupSum(rows,r=> r.Date? r.Date.toISOString().slice(0,10):'Unknown').filter(x=>x.key!=='Unknown');
+  if(lineChart) lineChart.destroy();
+  lineChart=new Chart(document.getElementById('lineCanvas'),{type:'line',data:{labels:byDay.map(x=>x.key),datasets:[{label:'Daily Spend',data:byDay.map(x=>x.value)}]}});
+  // cumulative
+  const sorted=rows.slice().sort((a,b)=>a.Date-b.Date); let run=0; const labels=[],vals=[]; sorted.forEach(r=>{run+=r.Amount; labels.push(r.Date.toISOString().slice(0,10)); vals.push(run)});
+  if(cumChart) cumChart.destroy();
+  cumChart=new Chart(document.getElementById('cumCanvas'),{type:'line',data:{labels,datasets:[{label:'Cumulative',data:vals}]}});
+  // summary
+  const total=sum(rows,x=>x.Amount); const months=new Set(rows.map(r=>monthKey(r.Date))).size||1; const avg=Math.round(total/months);
+  document.getElementById('summaryBox').innerHTML=`<div class='chip'>Total: ${fmt(total)}</div> <div class='chip'>Avg/Month: ${fmt(avg)}</div> <div class='chip'>Vendors: ${new Set(rows.map(r=>r.Vendor)).size}</div>`;
+}
+
+function renderAlerts(view){
+  const box=document.getElementById('alertBox'); box.innerHTML='';
+  const bigBills=view.filter(x=>x.Category==='Bills' && x.Amount>=5000);
+  if(bigBills.length){ const d=document.createElement('div'); d.className='panel'; d.innerHTML=`<b>High Bills Alert</b><div class='note'>${bigBills.length} bill(s) ≥ ₹5,000</div>`; box.appendChild(d) }
+  const bigTx=view.filter(x=>x.Amount>=10000);
+  if(bigTx.length){ const d=document.createElement('div'); d.className='panel'; d.innerHTML=`<b>High Spend Alert</b><div class='note'>${bigTx.length} transaction(s) ≥ ₹10,000</div>`; box.appendChild(d) }
+  if(!box.children.length) box.innerHTML='<div class="note">No alerts for current view.</div>'
+}
+
+// ------- Local save -------
+document.getElementById('saveLocal').addEventListener('click',()=>{ if(!rows.length) return alert('No data'); const payload={rows:rows.map(r=>({...r,Date:r.Date.toISOString()})),budgets}; localStorage.setItem('financeData',JSON.stringify(payload)); alert('Saved!') });
+
+document.getElementById('loadLocal').addEventListener('click',()=>{ const s=localStorage.getItem('financeData'); if(!s) return alert('Nothing saved'); const obj=JSON.parse(s); rows=obj.rows.map(r=>({...r,Date:new Date(r.Date)})); budgets=obj.budgets||{}; hydrateFilters(); document.getElementById('rowCount').textContent=`${rows.length} rows`; renderAll(); });
+
+document.getElementById('clearLocal').addEventListener('click',()=>{ localStorage.removeItem('financeData'); alert('Cleared!') });
+
+// First paint
+renderAll();
+</script>
+</body>
+</html>
